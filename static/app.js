@@ -16,8 +16,7 @@ async function startCamera() {
 }
 
 function startWS() {
-  ws = new WebSocket("ws://" + location.host + "/ws/predict");
-
+  ws = new WebSocket("wss://dualtaskemotionauthentication.onrender.com/ws/predict");
   ws.onopen = () => {
     console.log("✅ WebSocket connected");
     status.innerText = "Connected";

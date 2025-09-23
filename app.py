@@ -31,6 +31,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 model = None
 
+
+@app.get("/")
+def read_root():
+    return {"message": "Service is running"}
+
+@app.get("/favicon.ico")
+def favicon():
+    return {"message": "No favicon"}
 @app.on_event("startup")
 async def load_model():
     global model
