@@ -7,6 +7,7 @@ import uvicorn
 from PIL import Image
 import torch
 import torchvision.transforms as T
+from fastapi.responses import FileResponse
 
 from model import MultiTaskEffNetB0
 
@@ -36,9 +37,9 @@ model = None
 def read_root():
     return {"message": "Service is running"}
 
-@app.get("/favicon.ico")
+@app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return {"message": "No favicon"}
+    return FileResponse("static/emotion.png")
 @app.on_event("startup")
 async def load_model():
     global model
@@ -103,4 +104,6 @@ async def predict_ws(websocket: WebSocket):
         print("❌ Client disconnected")
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000)
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)
