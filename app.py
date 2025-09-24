@@ -39,7 +39,7 @@ def read_root():
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return FileResponse("static/emotion.png")
+    return FileResponse("emotion.png")
 @app.on_event("startup")
 async def load_model():
     global model
