@@ -1,6 +1,6 @@
-fastapi
-uvicorn[standard]
-Pillow
-torch
-torchvision
-facenet-pytorch
+fastapi==0.115.0
+uvicorn[standard]==0.30.3
+Pillow>=10.3.0
+torch==2.4.0
+torchvision==0.19.0
+facenet-pytorch==2.6.0
