@@ -1,7 +1,8 @@
 const video = document.getElementById("video"),
       overlay = document.getElementById("overlay"),
       ctx = overlay.getContext("2d"),
-      status = document.getElementById("status");
+      status = document.getElementById("status"),
+      output = document.getElementById("output"); // 👈 new <img> element
 
 let stream, ws, sending = false;
 
@@ -38,12 +39,19 @@ function startWS() {
     try {
       const data = JSON.parse(ev.data);
       if (data.error) {
-        // ⚠️ Skip overlay update if no face detected
         console.warn("⚠️ Backend:", data.error);
         status.innerText = "No face detected";
         return;
       }
+
+      // Update overlay text
       drawOverlay(data);
+
+      // Update annotated image
+      if (data.image) {
+        output.src = data.image;
+      }
+
       status.innerText = "Streaming";
     } catch (e) {
       console.error("Parse error:", e);

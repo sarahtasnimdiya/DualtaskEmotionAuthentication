@@ -4,7 +4,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
-from PIL import Image
+from PIL import Image, ImageDraw
 import torch
 import torchvision.transforms as T
 from facenet_pytorch import MTCNN   # 👈 Face detector
@@ -83,13 +83,20 @@ async def predict_ws(websocket: WebSocket):
             img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
 
             # ------------------ FACE DETECTION ------------------
-            face_tensor = mtcnn(img)  # tensor [3,224,224] or None
-            if face_tensor is None:
+            boxes, _ = mtcnn.detect(img)
+            if boxes is None:
                 await websocket.send_text(json.dumps({"error": "No face detected"}))
                 continue
 
-            # Convert face tensor -> PIL -> apply same transform
-            face_pil = T.ToPILImage()(face_tensor)
+            # Draw bounding box on image
+            draw = ImageDraw.Draw(img)
+            for box in boxes:
+                x1, y1, x2, y2 = [int(v) for v in box]
+                draw.rectangle([x1, y1, x2, y2], outline="red", width=4)
+
+            # Crop face for model input (use first box only)
+            x1, y1, x2, y2 = [int(v) for v in boxes[0]]
+            face_pil = img.crop((x1, y1, x2, y2)).resize((224,224))
             x = transform(face_pil).unsqueeze(0).to(DEVICE)
 
             # ------------------ INFERENCE ------------------
@@ -102,6 +109,11 @@ async def predict_ws(websocket: WebSocket):
             emotion_label = EMOTION_LABELS[top_idx]
             auth_label = "Genuine" if auth_prob >= 0.5 else "Fake"
 
+            # Encode annotated image back to base64
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG")
+            img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
             resp = {
                 "emotion": {
                     "label": emotion_label,
@@ -111,7 +123,8 @@ async def predict_ws(websocket: WebSocket):
                 "authenticity": {
                     "label": auth_label,
                     "genuine_prob": float(auth_prob)
-                }
+                },
+                "image": "data:image/jpeg;base64," + img_b64
             }
 
             # Debug log
