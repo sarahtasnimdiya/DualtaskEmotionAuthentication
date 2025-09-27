@@ -7,8 +7,7 @@ import uvicorn
 from PIL import Image
 import torch
 import torchvision.transforms as T
-from facenet_pytorch import MTCNN   # 👈 Face detector
-
+from facenet_pytorch import MTCNN
 from model import MultiTaskEffNetB0
 
 # ------------------ CONFIG ------------------
