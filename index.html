@@ -94,17 +94,14 @@
     const emotionEl = document.getElementById("emotion");
     const authEl = document.getElementById("authenticity");
 
-    let stream;
-    let intervalId;
+    let stream, ws, sending = false;
 
     async function startCamera() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
         video.srcObject = stream;
         statusText.textContent = "Camera On";
         statusText.style.color = "#0f0";
-
-        intervalId = setInterval(captureFrame, 1000); // send 1 frame per second
       } catch (err) {
         console.error("Camera error:", err);
         statusText.textContent = "Camera Error";
@@ -112,49 +109,85 @@
       }
     }
 
-    function stopCamera() {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      clearInterval(intervalId);
-      statusText.textContent = "Idle";
-      statusText.style.color = "#0f0";
-    }
+    function startWS() {
+      ws = new WebSocket("wss://dualtaskemotionauthentication.onrender.com/ws/predict");
 
-    async function captureFrame() {
-      ctx.drawImage(video, 0, 0, overlay.width, overlay.height);
-      overlay.toBlob(async (blob) => {
-        const formData = new FormData();
-        formData.append("file", blob, "frame.jpg");
+      ws.onopen = () => {
+        console.log("✅ WebSocket connected");
+        statusText.textContent = "Connected";
+      };
 
+      ws.onclose = () => {
+        console.log("❌ WebSocket disconnected");
+        statusText.textContent = "Disconnected";
+        sending = false;
+      };
+
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        statusText.textContent = "Error";
+      };
+
+      ws.onmessage = (ev) => {
         try {
-          // 👉 Change URL to your backend endpoint
-          const res = await fetch("http://localhost:8000/predict", {
-            method: "POST",
-            body: formData
-          });
-          const data = await res.json();
-
-          // Draw green box
-          ctx.strokeStyle = "lime";
-          ctx.lineWidth = 3;
-          if (data.box) {
-            const [x1, y1, x2, y2] = data.box;
-            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+          const data = JSON.parse(ev.data);
+          if (data.error) {
+            console.warn("⚠️ Backend:", data.error);
+            statusText.textContent = "No face detected";
+            return;
           }
+          drawOverlay(data);
 
-          // Update text
-          emotionEl.textContent = data.Emotion || "N/A";
-          authEl.textContent = data.Authenticity || "N/A";
+          // Update prediction box
+          emotionEl.textContent = `${data.emotion.label} (${(data.emotion.score*100).toFixed(1)}%)`;
+          authEl.textContent = `${data.authenticity.label} (${(data.authenticity.genuine_prob*100).toFixed(1)}%)`;
 
-        } catch (err) {
-          console.error("Prediction error:", err);
+        } catch (e) {
+          console.error("Parse error:", e);
         }
-      }, "image/jpeg");
+      };
     }
 
-    startBtn.addEventListener("click", startCamera);
-    stopBtn.addEventListener("click", stopCamera);
+    function capture() {
+      const c = document.createElement("canvas");
+      c.width = video.videoWidth;
+      c.height = video.videoHeight;
+      c.getContext("2d").drawImage(video, 0, 0);
+      return c.toDataURL("image/jpeg", 0.7);
+    }
+
+    async function loop() {
+      while (sending && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ image: capture() }));
+        await new Promise(r => setTimeout(r, 200)); // ~5 fps
+      }
+    }
+
+    function drawOverlay(r) {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+      // ✅ Draw face box if available
+      if (r.face_box) {
+        ctx.strokeStyle = "lime"; // green box
+        ctx.lineWidth = 3;
+        ctx.strokeRect(r.face_box.x, r.face_box.y, r.face_box.w, r.face_box.h);
+      }
+    }
+
+    startBtn.onclick = async () => {
+      await startCamera();
+      startWS();
+      sending = true;
+      loop();
+      statusText.textContent = "Streaming";
+    };
+
+    stopBtn.onclick = () => {
+      sending = false;
+      if (ws) ws.close();
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      statusText.textContent = "Stopped";
+    };
   </script>
 </body>
 </html>
