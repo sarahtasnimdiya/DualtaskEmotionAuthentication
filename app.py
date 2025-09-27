@@ -32,7 +32,7 @@ app.add_middleware(
 )
 
 model = None
-mtcnn = None   # 👈 will hold face detector
+mtcnn = None
 
 
 @app.get("/")
