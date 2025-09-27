@@ -1,7 +1,7 @@
 services:
   - type: web
     name: dualtask-emotion-backend
-    env: python
+    runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port 8000
