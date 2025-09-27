@@ -1,16 +1,17 @@
 # app.py
-import base64, io, json
+import base64, io, json, os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import uvicorn
 from PIL import Image
 import torch
 import torchvision.transforms as T
-from fastapi.responses import FileResponse
+from facenet_pytorch import MTCNN   # 👈 Face detector
 
 from model import MultiTaskEffNetB0
 
+# ------------------ CONFIG ------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EMOTION_LABELS = ['Angry','Disgust','Fear','Happy','Sad','Surprise','Neutral']
 
@@ -20,6 +21,7 @@ transform = T.Compose([
     T.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
 ])
 
+# ------------------ FASTAPI ------------------
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -28,36 +30,44 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# app.mount("/static", StaticFiles(directory="static"), name="static")
 
 model = None
+mtcnn = None   # 👈 will hold face detector
 
 
 @app.get("/")
 def read_root():
     return {"message": "Service is running"}
 
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse("emotion.png")
+
+
 @app.on_event("startup")
 async def load_model():
-    global model
+    """Load model and MTCNN on startup."""
+    global model, mtcnn
     model = MultiTaskEffNetB0(num_emotions=len(EMOTION_LABELS))
 
     weights_path = "./weights/final_multitask_model90.pth"
     state = torch.load(weights_path, map_location=DEVICE)
 
-    # Filter out unexpected keys (e.g. log_var_e, log_var_a)
+    # Filter out unexpected keys (like log_var_e, log_var_a)
     filtered_state = {k: v for k, v in state.items() if k in model.state_dict()}
-
     model.load_state_dict(filtered_state, strict=False)
-    model.to(DEVICE)
-    model.eval()
-    print("✅ Model loaded on", DEVICE)
+    model.to(DEVICE).eval()
+
+    # Init MTCNN face detector
+    mtcnn = MTCNN(image_size=224, margin=20, keep_all=False, device=DEVICE)
+
+    print("✅ Model + MTCNN loaded on", DEVICE)
+
 
 @app.websocket("/ws/predict")
 async def predict_ws(websocket: WebSocket):
+    """Handle real-time predictions over WebSocket."""
     await websocket.accept()
     try:
         while True:
@@ -67,27 +77,36 @@ async def predict_ws(websocket: WebSocket):
             if not b64:
                 continue
             if b64.startswith("data:image"):
-                b64 = b64.split(",",1)[1]
+                b64 = b64.split(",", 1)[1]
 
+            # Decode base64 to PIL
             img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-            x = transform(img).unsqueeze(0).to(DEVICE)
 
+            # ------------------ FACE DETECTION ------------------
+            face_tensor = mtcnn(img)  # tensor [3,224,224] or None
+            if face_tensor is None:
+                await websocket.send_text(json.dumps({"error": "No face detected"}))
+                continue
+
+            # Convert face tensor -> PIL -> apply same transform
+            face_pil = T.ToPILImage()(face_tensor)
+            x = transform(face_pil).unsqueeze(0).to(DEVICE)
+
+            # ------------------ INFERENCE ------------------
             with torch.no_grad():
                 emo_logits, auth_logits = model(x)
-                emo_probs = torch.softmax(emo_logits,1).cpu().numpy()[0]
+                emo_probs = torch.softmax(emo_logits, 1).cpu().numpy()[0]
                 auth_prob = torch.sigmoid(auth_logits.squeeze()).cpu().item()
 
-            top_idx = int(torch.argmax(emo_logits,1).cpu().item())
+            top_idx = int(torch.argmax(emo_logits, 1).cpu().item())
             emotion_label = EMOTION_LABELS[top_idx]
-
-            # Decide genuine/fake label
             auth_label = "Genuine" if auth_prob >= 0.5 else "Fake"
 
             resp = {
                 "emotion": {
                     "label": emotion_label,
                     "score": float(emo_probs[top_idx]),
-                    "probs": {l: float(p) for l,p in zip(EMOTION_LABELS, emo_probs)}
+                    "probs": {l: float(p) for l, p in zip(EMOTION_LABELS, emo_probs)}
                 },
                 "authenticity": {
                     "label": auth_label,
@@ -100,10 +119,11 @@ async def predict_ws(websocket: WebSocket):
                   f"Authenticity: {auth_label} ({auth_prob:.2f})")
 
             await websocket.send_text(json.dumps(resp))
+
     except WebSocketDisconnect:
         print("❌ Client disconnected")
 
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("app:app", host="0.0.0.0", port=port)

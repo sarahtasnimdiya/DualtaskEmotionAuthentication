@@ -17,6 +17,7 @@ async function startCamera() {
 
 function startWS() {
   ws = new WebSocket("wss://dualtaskemotionauthentication.onrender.com/ws/predict");
+
   ws.onopen = () => {
     console.log("✅ WebSocket connected");
     status.innerText = "Connected";
@@ -36,7 +37,14 @@ function startWS() {
   ws.onmessage = (ev) => {
     try {
       const data = JSON.parse(ev.data);
+      if (data.error) {
+        // ⚠️ Skip overlay update if no face detected
+        console.warn("⚠️ Backend:", data.error);
+        status.innerText = "No face detected";
+        return;
+      }
       drawOverlay(data);
+      status.innerText = "Streaming";
     } catch (e) {
       console.error("Parse error:", e);
     }
