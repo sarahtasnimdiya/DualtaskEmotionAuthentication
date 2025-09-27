@@ -1,8 +1,7 @@
 const video = document.getElementById("video"),
       overlay = document.getElementById("overlay"),
       ctx = overlay.getContext("2d"),
-      status = document.getElementById("status"),
-      output = document.getElementById("output"); // 👈 new <img> element
+      status = document.getElementById("status");
 
 let stream, ws, sending = false;
 
@@ -43,15 +42,7 @@ function startWS() {
         status.innerText = "No face detected";
         return;
       }
-
-      // Update overlay text
       drawOverlay(data);
-
-      // Update annotated image
-      if (data.image) {
-        output.src = data.image;
-      }
-
       status.innerText = "Streaming";
     } catch (e) {
       console.error("Parse error:", e);
@@ -76,6 +67,14 @@ async function loop() {
 
 function drawOverlay(r) {
   ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  // ✅ Draw face box if available
+  if (r.face_box) {
+    ctx.strokeStyle = "lime"; // green box
+    ctx.lineWidth = 3;
+    ctx.strokeRect(r.face_box.x, r.face_box.y, r.face_box.w, r.face_box.h);
+  }
+
   ctx.font = "20px Arial";
   ctx.textBaseline = "top";
 

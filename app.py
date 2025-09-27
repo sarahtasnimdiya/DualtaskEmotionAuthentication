@@ -4,7 +4,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
-from PIL import Image, ImageDraw
+from PIL import Image
 import torch
 import torchvision.transforms as T
 from facenet_pytorch import MTCNN   # 👈 Face detector
@@ -88,12 +88,6 @@ async def predict_ws(websocket: WebSocket):
                 await websocket.send_text(json.dumps({"error": "No face detected"}))
                 continue
 
-            # Draw bounding box on image
-            draw = ImageDraw.Draw(img)
-            for box in boxes:
-                x1, y1, x2, y2 = [int(v) for v in box]
-                draw.rectangle([x1, y1, x2, y2], outline="red", width=4)
-
             # Crop face for model input (use first box only)
             x1, y1, x2, y2 = [int(v) for v in boxes[0]]
             face_pil = img.crop((x1, y1, x2, y2)).resize((224,224))
@@ -109,11 +103,6 @@ async def predict_ws(websocket: WebSocket):
             emotion_label = EMOTION_LABELS[top_idx]
             auth_label = "Genuine" if auth_prob >= 0.5 else "Fake"
 
-            # Encode annotated image back to base64
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG")
-            img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-
             resp = {
                 "emotion": {
                     "label": emotion_label,
@@ -124,7 +113,12 @@ async def predict_ws(websocket: WebSocket):
                     "label": auth_label,
                     "genuine_prob": float(auth_prob)
                 },
-                "image": "data:image/jpeg;base64," + img_b64
+                "face_box": {
+                    "x": int(x1),
+                    "y": int(y1),
+                    "w": int(x2 - x1),
+                    "h": int(y2 - y1)
+                }
             }
 
             # Debug log
