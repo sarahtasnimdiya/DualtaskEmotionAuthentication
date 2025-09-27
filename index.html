@@ -53,11 +53,14 @@
       font-weight: bold;
       color: #0f0;
     }
-    #output {
+    #predictionBox {
       margin-top: 15px;
+      padding: 10px;
       border-radius: 8px;
       border: 2px solid #444;
-      max-width: 640px;
+      background: #111;
+      width: 300px;
+      text-align: center;
     }
   </style>
 </head>
@@ -72,9 +75,86 @@
       <button id="stopBtn">Stop</button>
       <span id="status">Idle</span>
     </div>
-    <!-- 👇 Annotated image will show here -->
-    <img id="output" alt="Annotated frame with bounding box" />
+    <!-- 👇 Predictions -->
+    <div id="predictionBox">
+      <p><strong>Emotion:</strong> <span id="emotion">N/A</span></p>
+      <p><strong>Authenticity:</strong> <span id="authenticity">N/A</span></p>
+    </div>
   </div>
-  <script src="app.js"></script>
+
+  <script>
+    const video = document.getElementById("video");
+    const overlay = document.getElementById("overlay");
+    const ctx = overlay.getContext("2d");
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const statusText = document.getElementById("status");
+
+    const emotionEl = document.getElementById("emotion");
+    const authEl = document.getElementById("authenticity");
+
+    let stream;
+    let intervalId;
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        statusText.textContent = "Camera On";
+        statusText.style.color = "#0f0";
+
+        intervalId = setInterval(captureFrame, 1000); // send 1 frame per second
+      } catch (err) {
+        console.error("Camera error:", err);
+        statusText.textContent = "Camera Error";
+        statusText.style.color = "red";
+      }
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      clearInterval(intervalId);
+      statusText.textContent = "Idle";
+      statusText.style.color = "#0f0";
+    }
+
+    async function captureFrame() {
+      ctx.drawImage(video, 0, 0, overlay.width, overlay.height);
+      overlay.toBlob(async (blob) => {
+        const formData = new FormData();
+        formData.append("file", blob, "frame.jpg");
+
+        try {
+          // 👉 Change URL to your backend endpoint
+          const res = await fetch("http://localhost:8000/predict", {
+            method: "POST",
+            body: formData
+          });
+          const data = await res.json();
+
+          // Draw green box
+          ctx.strokeStyle = "lime";
+          ctx.lineWidth = 3;
+          if (data.box) {
+            const [x1, y1, x2, y2] = data.box;
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+          }
+
+          // Update text
+          emotionEl.textContent = data.Emotion || "N/A";
+          authEl.textContent = data.Authenticity || "N/A";
+
+        } catch (err) {
+          console.error("Prediction error:", err);
+        }
+      }, "image/jpeg");
+    }
+
+    startBtn.addEventListener("click", startCamera);
+    stopBtn.addEventListener("click", stopCamera);
+  </script>
 </body>
 </html>
